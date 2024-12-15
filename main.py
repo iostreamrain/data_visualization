@@ -34,6 +34,9 @@ class MainWindow(QMainWindow):
         # 当前打开的文件路径
         self.current_file = None
         
+        # 加载用户设置
+        self.settings = self.load_settings()
+        
         # 创建菜单栏
         self.create_menu_bar()
         
@@ -41,7 +44,22 @@ class MainWindow(QMainWindow):
         self.recent_files = self.load_recent_files()
         self.update_recent_files_menu()
         
-        # 创建主窗口部件
+        # 创建主窗口部件和UI
+        self.setup_ui()
+        
+        # 初始化颜色设置
+        self.init_colors()
+        
+        # 根据设置决定是否自动加载上次的文件，如果不加载则显示空白界面
+        if self.settings.get('auto_load_last_file', False) and self.recent_files:
+            last_file = self.recent_files[0]
+            if os.path.exists(last_file):
+                self.load_excel_file(last_file)
+        else:
+            self.load_data()  # 显示空白界面
+    
+    def setup_ui(self):
+        """设置UI组件"""
         main_widget = QWidget()
         self.setCentralWidget(main_widget)
         
@@ -85,11 +103,9 @@ class MainWindow(QMainWindow):
         
         # 设置表格的行高
         self.table.verticalHeader().setDefaultSectionSize(100)
-        
-        # 加载数据
-        self.load_data()
-        
-        # 添加更多的颜色方案
+    
+    def init_colors(self):
+        """初始化颜色设置"""
         self.colors = [
             '#1f77b4',  # 蓝色
             '#ff7f0e',  # 橙色
@@ -112,9 +128,7 @@ class MainWindow(QMainWindow):
             '#8c6d31',  # 深黄色
             '#bd9e39'   # 金色
         ]
-        # 记录ASIN和颜色的映射关系
         self.asin_colors = {}
-        # 记录已使用的颜色索引
         self.used_color_indices = set()
     
     def create_menu_bar(self):
@@ -132,6 +146,16 @@ class MainWindow(QMainWindow):
         # 最近打开的文件子菜单
         self.recent_menu = file_menu.addMenu('最近打开')
         
+        # 设置菜单
+        settings_menu = menubar.addMenu('设置')
+        
+        # 自动加载上次文件的选项
+        self.auto_load_action = QAction('自动加载上次文件', self)
+        self.auto_load_action.setCheckable(True)
+        self.auto_load_action.setChecked(self.settings.get('auto_load_last_file', False))
+        self.auto_load_action.triggered.connect(self.toggle_auto_load)
+        settings_menu.addAction(self.auto_load_action)
+    
     def load_recent_files(self):
         try:
             config_path = os.path.join(os.path.expanduser('~'), '.excel_viewer_history.json')
@@ -169,7 +193,7 @@ class MainWindow(QMainWindow):
     def open_file(self):
         file_path, _ = QFileDialog.getOpenFileName(
             self,
-            "选择Excel文件",
+            "选择Excel文���",
             "",
             "Excel Files (*.xlsx *.xls);;All Files (*)"
         )
@@ -180,7 +204,7 @@ class MainWindow(QMainWindow):
         if os.path.exists(file_path):
             self.load_excel_file(file_path)
         else:
-            # 如果文件不存在，从���史记录中移除
+            # 如果文件不存在，从史记录中移除
             self.recent_files.remove(file_path)
             self.save_recent_files()
             self.update_recent_files_menu()
@@ -276,7 +300,7 @@ class MainWindow(QMainWindow):
                 row_data = df.iloc[row]
                 asin = row_data["ASIN"]
                 
-                # 如果是新的ASIN，分配一个新的未使用的颜色
+                # 如果是新的ASIN，分配一个新的未使用的��色
                 if asin not in self.asin_colors:
                     self.asin_colors[asin] = self.get_next_color()
                 
@@ -325,31 +349,18 @@ class MainWindow(QMainWindow):
             traceback.print_exc()
     
     def load_data(self):
-        try:
-            # 读取Excel文件
-            df = pd.read_excel('示例数据.xlsx')
-            
-            # 设置表格
-            self.table.setRowCount(len(df))
-            self.table.setColumnCount(len(df.columns))
-            self.table.setHorizontalHeaderLabels(df.columns)
-            
-            # 填充表格数据
-            for i in range(len(df)):
-                for j in range(len(df.columns)):
-                    item = QTableWidgetItem(str(df.iloc[i, j]))
-                    self.table.setItem(i, j, item)
-            
-            # 初始化时不显示折线图
-            ax = self.figure.add_subplot(111)
-            ax.clear()
-            ax.set_xlabel('时间', fontproperties=font)
-            ax.set_ylabel('销量', fontproperties=font)
-            ax.set_title('点击表格行显示销量趋势', fontproperties=font)
-            self.canvas.draw()
-            
-        except Exception as e:
-            print(f"加载数据时出错: {str(e)}")
+        """移除默认加载数据的行为"""
+        # 初始化空表格
+        self.table.setRowCount(0)
+        self.table.setColumnCount(0)
+        
+        # 初始化空图表
+        ax = self.figure.add_subplot(111)
+        ax.clear()
+        ax.set_xlabel('时间', fontproperties=font)
+        ax.set_ylabel('销量', fontproperties=font)
+        ax.set_title('点击表格行显示销量趋势', fontproperties=font)
+        self.canvas.draw()
     
     def download_image(self, url):
         """下载图片并返回本地路径"""
@@ -403,6 +414,31 @@ class MainWindow(QMainWindow):
             print(f"加载图片时出错: {str(e)}")
             import traceback
             traceback.print_exc()
+    
+    def load_settings(self):
+        """加载用户设置"""
+        try:
+            settings_path = os.path.join(os.path.expanduser('~'), '.excel_viewer_settings.json')
+            if os.path.exists(settings_path):
+                with open(settings_path, 'r', encoding='utf-8') as f:
+                    return json.load(f)
+        except Exception as e:
+            print(f"加载设置失败: {str(e)}")
+        return {}
+    
+    def save_settings(self):
+        """保存用户设置"""
+        try:
+            settings_path = os.path.join(os.path.expanduser('~'), '.excel_viewer_settings.json')
+            with open(settings_path, 'w', encoding='utf-8') as f:
+                json.dump(self.settings, f, ensure_ascii=False)
+        except Exception as e:
+            print(f"保存设置失败: {str(e)}")
+    
+    def toggle_auto_load(self, checked):
+        """切换自动加载设置"""
+        self.settings['auto_load_last_file'] = checked
+        self.save_settings()
 
 if __name__ == '__main__':
     app = QApplication(sys.argv)
