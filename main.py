@@ -188,8 +188,10 @@ class MainWindow(QMainWindow):
                 row_data = df.iloc[row]
                 json_str = row_data['历史数据-junglescout'].replace('&#10;', '').strip()
                 history_data = json.loads(json_str)
-                
-                dates = pd.to_datetime(history_data['days'])
+                try:
+                    dates = pd.to_datetime(history_data['days'])
+                except:
+                    print(history_data['days'])
                 sales = [0 if x is None else x for x in history_data['sales']]
                 
                 all_dates.extend(dates)
@@ -213,7 +215,9 @@ class MainWindow(QMainWindow):
             
             # 设置x轴时间格式
             ax.xaxis.set_major_formatter(DateFormatter('%Y/%m/%d'))
-            plt.xticks(rotation=45)
+            ax = self.figure.gca()
+            ax.xaxis.set_tick_params(labelrotation=-45)  # 设置 x 轴标签旋转 -45 度
+            # plt.xticks(rotation=45)
             
             # 自动调整布局
             self.figure.tight_layout()
