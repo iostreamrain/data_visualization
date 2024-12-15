@@ -292,6 +292,8 @@ class MainWindow(QMainWindow):
             # 获取所有选中的行
             selected_rows = set(item.row() for item in self.table.selectedItems())
             if not selected_rows:
+                # 如果没有选中行，清空图表
+                self.clear_plot()
                 return
             
             # 获取数据
@@ -299,62 +301,81 @@ class MainWindow(QMainWindow):
             
             # 准备绘图
             ax = self.figure.gca()
-            ax.clear()
+            ax.clear()  # 清除旧图表
             
             # 用于存储所有日期范围
-            launch_dates = []  # 存储所有产品的上架时间
-            first_data_dates = []  # 存储所有产品历史数据的第一个时��
-            max_dates = []  # 存储所有产品的最新数据时间
+            launch_dates = []
+            first_data_dates = []
+            max_dates = []
             
-            # 为每个选中的行绘制折线图
+            # 预处理所有选中行的数据
+            plot_data = []
+            
+            # 收集数据
             for row in selected_rows:
                 row_data = df.iloc[row]
                 asin = row_data["ASIN"]
                 
+                # 分配颜色
                 if asin not in self.asin_colors:
                     self.asin_colors[asin] = self.get_next_color()
                 
+                # 解析JSON数据
                 json_str = row_data['历史数据-junglescout'].replace('&#10;', '').strip()
                 history_data = json.loads(json_str)
                 
-                # 获取上架时间
-                launch_date = pd.to_datetime(row_data['上架日期'])
-                launch_dates.append(launch_date)
-                
-                # 转换历史数据日期
+                # 处理日期和销量数据
                 dates = pd.to_datetime(history_data['days'], format='%Y/%m/%d')
-                first_data_dates.append(dates.min())  # 记录历史数据的第一个时间
                 sales = [0 if x is None else x for x in history_data['sales']]
                 
-                # 获取最新数据时间
-                latest_date = dates.max()
-                max_dates.append(latest_date)
+                # 记录日期范围
+                launch_date = pd.to_datetime(row_data['上架日期'])
+                launch_dates.append(launch_date)
+                first_data_dates.append(dates.min())
+                max_dates.append(dates.max())
                 
-                # 绘制折线图
-                ax.plot(dates, sales, '-o', label=f'ASIN: {asin}', 
-                       color=self.asin_colors[asin])
+                # 存储绘图数据
+                plot_data.append({
+                    'asin': asin,
+                    'title': row_data.get('标题', '')[:30] + '...',  # 添加标题前30个字符
+                    'dates': dates,
+                    'sales': sales,
+                    'color': self.asin_colors[asin]
+                })
             
-            # 根据设置选择开始时间
-            if self.settings.get('start_from_launch_date', True):
-                start_date = min(launch_dates)
-            else:
-                start_date = min(first_data_dates)
+            # 绘制所有数据
+            for data in plot_data:
+                ax.plot(data['dates'], data['sales'], '-o', 
+                       label=f"{data['asin']}\n{data['title']}", 
+                       color=data['color'],
+                       linewidth=2,
+                       markersize=4)
             
-            # 设置x轴范围
-            if max_dates:
+            # 设置图表范围和样式
+            ax.set_ylim(bottom=0)
+            
+            if launch_dates:
+                # 设置x轴范围
+                start_date = min(launch_dates if self.settings.get('start_from_launch_date', True) 
+                               else first_data_dates)
                 ax.set_xlim(start_date, max(max_dates))
-            
-            # 设置图表属性
-            ax.set_xlabel('时间', fontproperties=font)
-            ax.set_ylabel('销量', fontproperties=font)
-            ax.set_title('多产品销量趋势对比', fontproperties=font)
-            
-            # 设置图例字体
-            ax.legend(prop=font)
-            
-            # 设置x轴时间格式
-            ax.xaxis.set_major_formatter(DateFormatter('%Y/%m/%d'))
-            ax.xaxis.set_tick_params(labelrotation=-45)  # 设置 x 轴标签旋转 -45 度
+                
+                # 设置图表属性
+                ax.set_xlabel('时间', fontproperties=font)
+                ax.set_ylabel('销量', fontproperties=font)
+                ax.set_title('多产品销量趋势对比', fontproperties=font)
+                
+                # 设置图例
+                # ax.legend(prop=font, bbox_to_anchor=(1.05, 1), 
+                #          loc='upper left', borderaxespad=0.)
+                ax.legend(prop=font)
+                
+                # 设置x轴时间格式
+                ax.xaxis.set_major_formatter(DateFormatter('%Y/%m/%d'))
+                ax.xaxis.set_tick_params(labelrotation=-45)
+                
+                # 添加网格
+                ax.grid(True, linestyle='--', alpha=0.7)
             
             # 自动调整布局
             self.figure.tight_layout()
@@ -364,6 +385,16 @@ class MainWindow(QMainWindow):
             print(f"更新图表时出错: {str(e)}")
             import traceback
             traceback.print_exc()
+    
+    def clear_plot(self):
+        """清空图表"""
+        ax = self.figure.gca()
+        ax.clear()
+        ax.set_xlabel('时间', fontproperties=font)
+        ax.set_ylabel('销量', fontproperties=font)
+        ax.set_title('点击表格行显示销量趋势', fontproperties=font)
+        self.figure.tight_layout()
+        self.canvas.draw()
     
     def load_data(self):
         """移除默认加载数据的行为"""
