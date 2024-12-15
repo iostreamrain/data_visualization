@@ -155,6 +155,13 @@ class MainWindow(QMainWindow):
         self.auto_load_action.setChecked(self.settings.get('auto_load_last_file', False))
         self.auto_load_action.triggered.connect(self.toggle_auto_load)
         settings_menu.addAction(self.auto_load_action)
+        
+        # 添加开始时间设置选项
+        self.start_time_action = QAction('开始时间为上架时间', self)
+        self.start_time_action.setCheckable(True)
+        self.start_time_action.setChecked(self.settings.get('start_from_launch_date', True))
+        self.start_time_action.triggered.connect(self.toggle_start_time)
+        settings_menu.addAction(self.start_time_action)
     
     def load_recent_files(self):
         try:
@@ -193,7 +200,7 @@ class MainWindow(QMainWindow):
     def open_file(self):
         file_path, _ = QFileDialog.getOpenFileName(
             self,
-            "选择Excel文���",
+            "选择Excel文件",
             "",
             "Excel Files (*.xlsx *.xls);;All Files (*)"
         )
@@ -228,7 +235,7 @@ class MainWindow(QMainWindow):
                     item = QTableWidgetItem(str(df.iloc[i, j]))
                     self.table.setItem(i, j, item)
                     
-                    # 如果是图片链接列，检查是否已有缓存图片
+                    # 如果是图片链接列，检查是否已有缓存���片
                     if j == image_col_index:
                         image_url = df.iloc[i, j]
                         # 使用URL的MD5作为文件名
@@ -292,7 +299,8 @@ class MainWindow(QMainWindow):
             ax.clear()
             
             # 用于存储所有日期范围
-            launch_dates = []  # 存储所有产品的上架时间（从表格中获取）
+            launch_dates = []  # 存储所有产品的上架时间
+            first_data_dates = []  # 存储所有产品历史数据的第一个时间
             max_dates = []  # 存储所有产品的最新数据时间
             
             # 为每个选中的行绘制折线图
@@ -300,32 +308,38 @@ class MainWindow(QMainWindow):
                 row_data = df.iloc[row]
                 asin = row_data["ASIN"]
                 
-                # 如果是新的ASIN，分配一个新的未使用的��色
                 if asin not in self.asin_colors:
                     self.asin_colors[asin] = self.get_next_color()
                 
                 json_str = row_data['历史数据-junglescout'].replace('&#10;', '').strip()
                 history_data = json.loads(json_str)
                 
-                # 获取上架时间（从表格中获取）
+                # 获取上架时间
                 launch_date = pd.to_datetime(row_data['上架日期'])
                 launch_dates.append(launch_date)
                 
                 # 转换历史数据日期
                 dates = pd.to_datetime(history_data['days'], format='%Y/%m/%d')
+                first_data_dates.append(dates.min())  # 记录历史数据的第一个时间
                 sales = [0 if x is None else x for x in history_data['sales']]
                 
                 # 获取最新数据时间
                 latest_date = dates.max()
                 max_dates.append(latest_date)
                 
-                # 使用固定的颜色绘制该ASIN的折线图
+                # 绘制折线图
                 ax.plot(dates, sales, '-o', label=f'ASIN: {asin}', 
                        color=self.asin_colors[asin])
             
-            # 设置x轴范围为所有选中产品的最早上架时间到最新数据时间
-            if launch_dates and max_dates:
-                ax.set_xlim(min(launch_dates), max(max_dates))
+            # 根据设置选择开始时间
+            if self.settings.get('start_from_launch_date', True):
+                start_date = min(launch_dates)
+            else:
+                start_date = min(first_data_dates)
+            
+            # 设置x轴范围
+            if max_dates:
+                ax.set_xlim(start_date, max(max_dates))
             
             # 设置图表属性
             ax.set_xlabel('时间', fontproperties=font)
@@ -439,6 +453,14 @@ class MainWindow(QMainWindow):
         """切换自动加载设置"""
         self.settings['auto_load_last_file'] = checked
         self.save_settings()
+    
+    def toggle_start_time(self, checked):
+        """切换开始时间设置"""
+        self.settings['start_from_launch_date'] = checked
+        self.save_settings()
+        # 如果有选中的行，立即更新图表
+        if self.table.selectedItems():
+            self.on_selection_change()
 
 if __name__ == '__main__':
     app = QApplication(sys.argv)
