@@ -45,24 +45,16 @@ class MainWindow(QMainWindow):
         main_widget = QWidget()
         self.setCentralWidget(main_widget)
         
-        # 创建水平布局
+        # 创建主布局
         layout = QHBoxLayout(main_widget)
         
         # 左侧表格
         self.table = QTableWidget()
         layout.addWidget(self.table)
         
-        # 启用多选功能
+        # 启用多选功能和行为设置
         self.table.setSelectionMode(QTableWidget.MultiSelection)
-        # 改为选择行变化事件
-        self.table.itemSelectionChanged.connect(self.on_selection_change)
-
-        # 设置表格选择行为为整行选择
         self.table.setSelectionBehavior(QTableWidget.SelectRows)
-
-        # 启用多选功能
-        self.table.setSelectionMode(QTableWidget.MultiSelection)
-        # 改为选择行变化事件
         self.table.itemSelectionChanged.connect(self.on_selection_change)
         
         # 右侧布局（包含图表和工具栏）
@@ -80,24 +72,50 @@ class MainWindow(QMainWindow):
         right_layout.addWidget(self.toolbar)
         right_layout.addWidget(self.canvas)
         
-        # 将左侧表格和右侧部件添加到主布局
-        layout = QHBoxLayout(main_widget)
-        layout.addWidget(self.table)
+        # 将右侧部件添加到主布局
         layout.addWidget(right_widget)
         
         # 设置布局比例
         layout.setStretch(0, 1)
         layout.setStretch(1, 1)
         
-        # 加载数据
-        self.load_data()
-        
         # 创建imgs文件夹（如果不存在）
         if not os.path.exists('imgs'):
             os.makedirs('imgs')
         
         # 设置表格的行高
-        self.table.verticalHeader().setDefaultSectionSize(100)  # 设置行高为100像素
+        self.table.verticalHeader().setDefaultSectionSize(100)
+        
+        # 加载数据
+        self.load_data()
+        
+        # 添加更多的颜色方案
+        self.colors = [
+            '#1f77b4',  # 蓝色
+            '#ff7f0e',  # 橙色
+            '#2ca02c',  # 绿色
+            '#d62728',  # 红色
+            '#9467bd',  # 紫色
+            '#8c564b',  # 棕色
+            '#e377c2',  # 粉色
+            '#7f7f7f',  # 灰色
+            '#bcbd22',  # 黄绿色
+            '#17becf',  # 青色
+            '#ff9896',  # 浅红色
+            '#98df8a',  # 浅绿色
+            '#c5b0d5',  # 浅紫色
+            '#c49c94',  # 浅棕色
+            '#f7b6d2',  # 浅粉色
+            '#dbdb8d',  # 浅黄色
+            '#9edae5',  # 浅青色
+            '#ad494a',  # 深红色
+            '#8c6d31',  # 深黄色
+            '#bd9e39'   # 金色
+        ]
+        # 记录ASIN和颜色的映射关系
+        self.asin_colors = {}
+        # 记录已使用的颜色索引
+        self.used_color_indices = set()
     
     def create_menu_bar(self):
         menubar = self.menuBar()
@@ -162,7 +180,7 @@ class MainWindow(QMainWindow):
         if os.path.exists(file_path):
             self.load_excel_file(file_path)
         else:
-            # 如果文件不存在，从历史记录中移除
+            # 如果文件不存在，从���史记录中移除
             self.recent_files.remove(file_path)
             self.save_recent_files()
             self.update_recent_files_menu()
@@ -185,8 +203,20 @@ class MainWindow(QMainWindow):
                 for j in range(len(df.columns)):
                     item = QTableWidgetItem(str(df.iloc[i, j]))
                     self.table.setItem(i, j, item)
+                    
+                    # 如果是图片链接列，检查是否已有缓存图片
+                    if j == image_col_index:
+                        image_url = df.iloc[i, j]
+                        # 使用URL的MD5作为文件名
+                        filename = hashlib.md5(image_url.encode()).hexdigest() + '.jpg'
+                        local_path = os.path.join('imgs', filename)
+                        
+                        # 如果图片已存在，直接显示
+                        if os.path.exists(local_path):
+                            image_label = self.create_image_label(local_path)
+                            self.table.setCellWidget(i, j, image_label)
             
-            # 添加表格项目点击事件
+            # 添加表格项目点击事件（仅用于处理未下载的图片）
             self.table.itemClicked.connect(self.on_item_clicked)
             
             # 清空图表
@@ -204,6 +234,21 @@ class MainWindow(QMainWindow):
             print(f"加载文件时出错: {str(e)}")
             import traceback
             traceback.print_exc()
+    
+    def get_next_color(self):
+        """获取下一个未使用的颜色"""
+        # 如果所有颜色都用完了，重置使用记录
+        if len(self.used_color_indices) >= len(self.colors):
+            self.used_color_indices.clear()
+            
+        # 找到第一个未使用的颜色
+        for i in range(len(self.colors)):
+            if i not in self.used_color_indices:
+                self.used_color_indices.add(i)
+                return self.colors[i]
+                
+        # 如果没有找到（理论上不会发生），返回第一个颜色
+        return self.colors[0]
     
     def on_selection_change(self):
         if not self.current_file:
@@ -223,31 +268,40 @@ class MainWindow(QMainWindow):
             ax.clear()
             
             # 用于存储所有日期范围
-            min_dates = []  # 存储所有产品的上架时间
+            launch_dates = []  # 存储所有产品的上架时间（从表格中获取）
             max_dates = []  # 存储所有产品的最新数据时间
             
             # 为每个选中的行绘制折线图
             for row in selected_rows:
                 row_data = df.iloc[row]
+                asin = row_data["ASIN"]
+                
+                # 如果是新的ASIN，分配一个新的未使用的颜色
+                if asin not in self.asin_colors:
+                    self.asin_colors[asin] = self.get_next_color()
+                
                 json_str = row_data['历史数据-junglescout'].replace('&#10;', '').strip()
                 history_data = json.loads(json_str)
                 
-                # 转换日期并获取日期范围
+                # 获取上架时间（从表格中获取）
+                launch_date = pd.to_datetime(row_data['上架日期'])
+                launch_dates.append(launch_date)
+                
+                # 转换历史数据日期
                 dates = pd.to_datetime(history_data['days'], format='%Y/%m/%d')
                 sales = [0 if x is None else x for x in history_data['sales']]
                 
-                # 获取上架时间和最新数据时间
-                launch_date = dates.min()
+                # 获取最新数据时间
                 latest_date = dates.max()
-                min_dates.append(launch_date)
                 max_dates.append(latest_date)
                 
-                # 绘制该ASIN的折线图
-                ax.plot(dates, sales, '-o', label=f'ASIN: {row_data["ASIN"]}')
+                # 使用固定的颜色绘制该ASIN的折线图
+                ax.plot(dates, sales, '-o', label=f'ASIN: {asin}', 
+                       color=self.asin_colors[asin])
             
             # 设置x轴范围为所有选中产品的最早上架时间到最新数据时间
-            if min_dates and max_dates:
-                ax.set_xlim(min(min_dates), max(max_dates))
+            if launch_dates and max_dates:
+                ax.set_xlim(min(launch_dates), max(max_dates))
             
             # 设置图表属性
             ax.set_xlabel('时间', fontproperties=font)
@@ -295,7 +349,7 @@ class MainWindow(QMainWindow):
             self.canvas.draw()
             
         except Exception as e:
-            print(f"加载数据时���错: {str(e)}")
+            print(f"加载数据时出错: {str(e)}")
     
     def download_image(self, url):
         """下载图片并返回本地路径"""
@@ -329,20 +383,21 @@ class MainWindow(QMainWindow):
     def on_item_clicked(self, item):
         try:
             row = item.row()
+            col = item.column()
             df = pd.read_excel(self.current_file)
             
-            # 获取图片链接
-            image_url = df.iloc[row]["图片链接"]
-            
-            # 如果单元格中已经有图片，就不需要重新加载
-            if self.table.cellWidget(row, df.columns.get_loc("图片链接")) is not None:
-                return
-                
-            # 下载并显示图片
-            image_path = self.download_image(image_url)
-            if image_path:
-                image_label = self.create_image_label(image_path)
-                self.table.setCellWidget(row, df.columns.get_loc("图片链接"), image_label)
+            # 只处理图片链接列的点击
+            if col == df.columns.get_loc("图片链接"):
+                # 如果单元格中已经有图片，不需要处理
+                if self.table.cellWidget(row, col) is not None:
+                    return
+                    
+                # 获取图片链接并下载
+                image_url = df.iloc[row, col]
+                image_path = self.download_image(image_url)
+                if image_path:
+                    image_label = self.create_image_label(image_path)
+                    self.table.setCellWidget(row, col, image_label)
                 
         except Exception as e:
             print(f"加载图片时出错: {str(e)}")
