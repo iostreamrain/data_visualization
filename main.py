@@ -75,6 +75,9 @@ class MainWindow(QMainWindow):
         self.table.setSelectionBehavior(QTableWidget.SelectRows)
         self.table.itemSelectionChanged.connect(self.on_selection_change)
         
+        # 添加表头点击事件
+        self.table.horizontalHeader().sectionClicked.connect(self.on_header_clicked)
+        
         # 右侧布局（包含图表和工具栏）
         right_widget = QWidget()
         right_layout = QVBoxLayout(right_widget)
@@ -235,7 +238,7 @@ class MainWindow(QMainWindow):
                     item = QTableWidgetItem(str(df.iloc[i, j]))
                     self.table.setItem(i, j, item)
                     
-                    # 如果是图片链接列，检查是否已有缓存���片
+                    # 如果是图片链接列，检查是否已有缓存图片
                     if j == image_col_index:
                         image_url = df.iloc[i, j]
                         # 使用URL的MD5作为文件名
@@ -300,7 +303,7 @@ class MainWindow(QMainWindow):
             
             # 用于存储所有日期范围
             launch_dates = []  # 存储所有产品的上架时间
-            first_data_dates = []  # 存储所有产品历史数据的第一个时间
+            first_data_dates = []  # 存储所有产品历史数据的第一个时��
             max_dates = []  # 存储所有产品的最新数据时间
             
             # 为每个选中的行绘制折线图
@@ -461,6 +464,27 @@ class MainWindow(QMainWindow):
         # 如果有选中的行，立即更新图表
         if self.table.selectedItems():
             self.on_selection_change()
+
+    def on_header_clicked(self, logical_index):
+        """处理表头点击事件"""
+        try:
+            # 获取点击的列的表头文本
+            header_text = self.table.horizontalHeaderItem(logical_index).text()
+            
+            # 如果点击的是ASIN列
+            if header_text == "ASIN":
+                # 检查是否有任何行被选中
+                has_selection = bool(self.table.selectedItems())
+                
+                # 如果有选中的行，则取消全选；如果没有，则全选
+                if has_selection:
+                    self.table.clearSelection()
+                else:
+                    self.table.selectAll()
+        except Exception as e:
+            print(f"处理表头点击时出错: {str(e)}")
+            import traceback
+            traceback.print_exc()
 
 if __name__ == '__main__':
     app = QApplication(sys.argv)
